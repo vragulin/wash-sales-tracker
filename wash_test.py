@@ -4,7 +4,7 @@ import unittest
 
 import lots as lots_lib
 import wash
-
+from functools import cmp_to_key
 
 def create_lot(num_shares,
                buy_year,
@@ -156,8 +156,8 @@ class TestBestReplacementLot(unittest.TestCase):
         self.assertEqual(10, wash_lot.num_shares)
         self.assertEqual(3, lots.size())
 
-        lots.sort(cmp=lots_lib.Lot.cmp_by_original_buy_date)
-        final_lots.sort(cmp=lots_lib.Lot.cmp_by_original_buy_date)
+        lots.sort(key=cmp_to_key(lots_lib.Lot.cmp_by_original_buy_date))
+        final_lots.sort(key=cmp_to_key(lots_lib.Lot.cmp_by_original_buy_date))
         self.assertSameLots(lots, final_lots)
 
     def test_loss_not_in_lots(self):

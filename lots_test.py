@@ -1,9 +1,9 @@
 import copy
 import datetime
 import unittest
-import StringIO
-
+import io
 import lots as lots_lib
+from functools import cmp_to_key
 
 class TestLots(unittest.TestCase):
 
@@ -62,7 +62,7 @@ class TestLots(unittest.TestCase):
             datetime.date(2014, 11, 5), 1800, '', 0, '', '', [], False, False))
         lots = lots_lib.Lots(lots_rows)
 
-        actual_output = StringIO.StringIO()
+        actual_output = io.StringIO()
         lots.write_csv_data(actual_output)
 
         expected_csv_data = [
@@ -93,7 +93,7 @@ class TestLots(unittest.TestCase):
             '20,ABC,A,09/25/2014,,3000,,11/05/2014,1800,,,,_1,,,'
         ]
         lots = lots_lib.Lots.create_from_csv_data(csv_data)
-        actual_output = StringIO.StringIO()
+        actual_output = io.StringIO()
         lots.write_csv_data(actual_output)
         actual_output.seek(0)
         self.assertSequenceEqual(
@@ -170,7 +170,7 @@ class TestLots(unittest.TestCase):
             datetime.date(2014, 9, 3), 0, 0, datetime.date(2014, 10, 6), 0, '',
             0, 'form1', '', [], False, False))
 
-        lots.sort(cmp=lots_lib.Lot.cmp_by_buy_date)
+        lots.sort(key=cmp_to_key(lots_lib.Lot.cmp_by_buy_date))
         self.assertTrue(lots == expected)
 
     def test_compare_by_original_buy_date(self):
@@ -226,7 +226,7 @@ class TestLots(unittest.TestCase):
             datetime.date(2014, 9, 3), 0, 0, datetime.date(2014, 10, 6), 0, '',
             0, 'form1', '', [], False, False))
 
-        lots.sort(cmp=lots_lib.Lot.cmp_by_original_buy_date)
+        lots.sort(key=cmp_to_key(lots_lib.Lot.cmp_by_original_buy_date))
         self.assertTrue(lots == expected)
 
     def test_compare_by_sell_date(self):
@@ -282,7 +282,7 @@ class TestLots(unittest.TestCase):
             datetime.date(2014, 9, 2), 0, 0, None, 0, '', 0, 'form1', '', [],
             False, False))
 
-        lots.sort(cmp=lots_lib.Lot.cmp_by_sell_date)
+        lots.sort(key=cmp_to_key(lots_lib.Lot.cmp_by_sell_date))
         self.assertTrue(lots == expected)
 
     def test_contents_equal(self):
