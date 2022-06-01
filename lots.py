@@ -1,7 +1,9 @@
 import copy
 import csv
 import datetime
+import numpy as np
 from functools import cmp_to_key
+from dateutil.relativedelta import relativedelta
 
 _HAS_TERMINALTABLES = False
 try:
@@ -23,11 +25,10 @@ except ImportError:
 # which is done in a number of different places.
 _LOT_COUNT = 0
 
-
+#%% class BadHeadersError
 class BadHeadersError(Exception):
-    """Raised if the headers that are parsed are not in the correct format."""
-
-
+    """Raised if the headers that are parsed are not in the correct format."""   
+#%% class Lot
 class Lot(object):
     """Models a single lot of stock."""
 
@@ -37,6 +38,10 @@ class Lot(object):
                    'proceeds', 'adjustment_code', 'adjustment',
                    'form_position', 'buy_lot', 'replacement_for',
                    'is_replacement', 'loss_processed']
+
+    # A list of codes for different kinds of gains (realized/unrealized, short/long term)
+    GAINS_CODES = ['r_st', 'r_lt', 'u_st', 'u_lt']
+    
 
     def __init__(self, num_shares, symbol, description, buy_date,
                  adjusted_buy_date, basis, adjusted_basis, sell_date, proceeds,
@@ -202,8 +207,76 @@ class Lot(object):
                 return -1
             return 1
         return a._lot_number < b._lot_number
-
-
+    
+    # =============================================================================
+    # Tax-related calculations
+    # =============================================================================
+    def is_long_term(self, date=None):
+        """ Calculate if lot is eligible for long-ter gains treatment
+            If it's closed, date is ignored.  If it's open and date=None, 
+            return False
+        """
+        # Determine start and end date of the holding period
+        if self.adjusted_buy_date is None:
+            start = self.buy_date
+        else:            
+            start = self.adjusted_buy_date
+        
+        if self.sell_date is None:
+            end = date
+        else:
+            end = self.sell_date
+            
+        # Test is holding period is greater than 1 year to qualify for Long-Term treatment
+        if (start is None) or (end is None):
+            return False
+        else:
+            return (end > start + relativedelta(years=1))
+        
+        def is_long_term(start, end):
+            if (start is None) or (end is None):
+                return False
+            else:
+                return end > start+relativedelta(years=1)
+        
+    def calc_gains(self, date=None, price=None, ):
+        """
+        Calculate realized and unrealized gains, split into short-term and long-term
+        If price or date are not not given, we don't calculate unrealized gains
+        
+        Return a dictionary with keys: r_st, r_lt, u_st, u_lt (GAINS_CODES)
+        (realized/unrealized, Short/Long-term)
+        """
+            
+        # Set values to defaults
+        r_s, r_l, u_s, u_l  = (np.nan,) * 4
+                   
+        # If a lot has not been washed
+        if self.adjustment_code != "W":
+            # Check if there are realized gains
+            if self.sell_date is not None:
+                gain = self.proceeds - self.adjusted_basis
+                # Do we qualify for long-term gains treatment?
+                if self.is_long_term(date):
+                    r_l = gain
+                else:
+                    r_s = gain
+            else:            
+                # Calculate unrealized gains
+                if (price is not None) and (date is not None):
+                    gain = self.num_shares * price - self.adjusted_basis
+    
+                    # Again, check if we qualify for long-term gains treatment
+                    if self.is_long_term(date):
+                        u_l = gain
+                    else:
+                        u_s = gain
+        
+        # Pack values into a dictionary
+        gains = {'r_st' : r_s, 'r_lt' : r_l, 'u_st': u_s, 'u_lt': u_l}
+        return gains
+        
+#%% class Lots
 class Lots(object):
     """Contains a set of lots."""
 
@@ -559,3 +632,41 @@ class Lots(object):
             row['is_replacement'] = convert_from_bool(lot.is_replacement)
             row['loss_processed'] = convert_from_bool(lot.loss_processed)
             writer.writerow(row)
+
+    # =============================================================================
+    # Tax-related calculations
+    # =============================================================================
+    @staticmethod
+    def add_lot_gains_to_port(lot_gains, port_gains):
+        """ Add lot gains to portfolio, for each field, take care of nan's"""
+        port_gains1 = port_gains.copy()
+    
+        for k in lot_gains:
+            if ~np.isnan(lot_gains[k]):
+                if ~np.isnan(port_gains[k]):
+                    port_gains1[k] = port_gains[k] + lot_gains[k]
+                else:
+                    port_gains1[k] = lot_gains[k]
+            
+        return port_gains1
+
+    def calc_gains(self, date=None, price=None):
+        """
+        Calculate realized and unrealized gains for a portfolio of lots, 
+        split into short-term and long-term.
+        If price or date are not not given, we don't calculate unrealized gains
+        Loop over all lots and sum the results.
+
+        Return a dictionary with keys: r_st, r_lt, u_st, u_lt (GAINS_CODES)
+        (realized/unrealized, Short/Long-term)
+        """
+        
+        # Set values to defaults
+        port_gains = dict.fromkeys(Lot.GAINS_CODES, np.nan)
+        
+        for lot in self._lots:
+            lot_gains = lot.calc_gains(date=date, price=price)
+            port_gains = Lots.add_lot_gains_to_port(lot_gains, port_gains)
+                    
+        return port_gains
+    

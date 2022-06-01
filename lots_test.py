@@ -3,8 +3,26 @@ import datetime
 import unittest
 import io
 import lots as lots_lib
+import numpy as np
 from functools import cmp_to_key
 
+# Import global params from class namespaces for easier reference
+GAINS_CODES = lots_lib.Lot.GAINS_CODES
+
+# Useful function to compare a dict with gains with a list of tuple of gains
+def test_dict_vs_vals(vals, d):
+    """ pack values into a dict with keys = GAINS_CODES and compare vs.
+        dictonary d.
+        Assume that vals are arranged in the right ordes of GAINS_CODES
+        
+        Return: boolean - True if dictionary values are the same as 'values'
+    """
+    # Compare all dict values to the list, and treat np.nans as equal as well
+    test = [((d[k] == v) or (np.isnan(d[k]) and np.isnan(v))) 
+            for k,v in zip(GAINS_CODES, vals)]
+    return(np.all(test))
+
+#%% TestLots
 class TestLots(unittest.TestCase):
 
     def assertSameLots(self, a, b):
@@ -317,6 +335,246 @@ class TestLots(unittest.TestCase):
         other_lots.lots()[0].num_shares = 2
         self.assertFalse(lots.contents_equal(other_lots))
 
+#%% Test tax-related calculations for a single lot
+class TestLotGains(unittest.TestCase):
+    def test_is_long_term(self):
+        #Set today's date
+        t = datetime.date(2022,5,22)
+        
+        #Test a long-term lot
+        longterm_lot1 = lots_lib.Lot(10, 'ABC', 'A', datetime.date(2014, 9, 15),
+                                datetime.date(2014, 9, 15), 2000, 2000,
+                                datetime.date(2022, 4, 5), 1800, '', 0,
+                                'form1', 'lot1', [], True, False)
 
+        self.assertTrue(longterm_lot1.is_long_term(t))
+        self.assertTrue(longterm_lot1.is_long_term())
+
+        # Unsold lot 
+        
+        longterm_lot2 = lots_lib.Lot(10, 'ABC', 'A', datetime.date(2014, 9, 15),
+                                datetime.date(2014, 9, 15), 2000, 2000,
+                                None, 1800, '', 0,
+                                'form1', 'lot1', [], True, False)
+
+        self.assertTrue(longterm_lot2.is_long_term(t))
+        self.assertFalse(longterm_lot2.is_long_term())
+
+
+        #Test several short-term lots
+        shortterm_lot1 = lots_lib.Lot(10, 'ABC', 'A', datetime.date(2022, 1, 2),
+                                datetime.date(2021, 9, 15), 2000, 2200,
+                                datetime.date(2022, 4, 5), 1800, '', 0,
+                                'form1', 'lot1', [], True, False)
+
+        self.assertFalse(shortterm_lot1.is_long_term(t))
+        self.assertFalse(shortterm_lot1.is_long_term())
+
+
+        shortterm_lot2 = lots_lib.Lot(10, 'ABC', 'A', datetime.date(2022, 1, 2),
+                                datetime.date(2021, 9, 15), 2000, 2200,
+                                None, 1800, '', 0,
+                                'form1', 'lot1', [], True, False)
+
+        self.assertFalse(shortterm_lot2.is_long_term(t))
+        self.assertFalse(shortterm_lot2.is_long_term())
+
+        # Test a lot that's exactly 1 year
+        shortterm_lot3 = lots_lib.Lot(10, 'ABC', 'A', datetime.date(2022, 1, 2),
+                                datetime.date(2021, 9, 15), 2000, 2200,
+                                datetime.date(2022, 9, 15), 1800, '', 0,
+                                'form1', 'lot1', [], True, False)
+
+        self.assertFalse(shortterm_lot3.is_long_term(t))
+        self.assertFalse(shortterm_lot3.is_long_term())
+        
+        shortterm_lot4 = lots_lib.Lot(10, 'ABC', 'A', datetime.date(2022, 1, 2),
+                                datetime.date(2021, 5, 22), 2000, 2200,
+                                None, 1800, '', 0,
+                                'form1', 'lot1', [], True, False)
+
+        self.assertFalse(shortterm_lot4.is_long_term(t))
+        self.assertFalse(shortterm_lot4.is_long_term())
+                
+    def test_calc_gains(self):
+    
+        
+        # set today's date and price
+        t = datetime.date(2022,5,22)
+        p = 100
+        
+        # =============================================================================
+        # Testing long-term lots
+        # =============================================================================
+        # Test a realized long-term lot
+        longterm_lot1 = lots_lib.Lot(10, 'ABC', 'A', datetime.date(2014, 9, 15),
+                                datetime.date(2014, 9, 15), 2000, 2000,
+                                datetime.date(2016, 4, 5), 1800, '', 0,
+                                'form1', 'lot1', [], True, False)
+
+        gains    = longterm_lot1.calc_gains()
+        expected = (np.nan, -200, np.nan, np.nan)  #r_s, r_l, u_s, u_l
+        self.assertTrue(test_dict_vs_vals(expected, gains))
+
+        # Specify price and date    
+        gains = longterm_lot1.calc_gains(t, p)
+        self.assertTrue(test_dict_vs_vals(expected, gains))
+
+        #Test an unrealized long-term lot - specified proceeds, but no sell date
+        longterm_lot2 = lots_lib.Lot(10, 'ABC', 'A', datetime.date(2014, 9, 15),
+                                datetime.date(2014, 9, 15), 2000, 2000,
+                                None, 0, '', 0,
+                                'form1', 'lot1', [], True, False)
+
+        gains = longterm_lot2.calc_gains()
+        expected = (np.nan, np.nan, np.nan, np.nan)
+        self.assertTrue(test_dict_vs_vals(expected, gains))
+
+        #Test an unrealized long-term lot - no proceeds or sell date
+        longterm_lot3 = lots_lib.Lot(10, 'ABC', 'A', datetime.date(2014, 9, 15),
+                                datetime.date(2014, 9, 15), 2000, 2000,
+                                None, 0, '', 0,
+                                'form1', 'lot1', [], True, False)
+
+        # Specify price and date    
+        gains = longterm_lot3.calc_gains(t, p)
+        expected = (np.nan, np.nan, np.nan, -1000)
+        self.assertTrue(test_dict_vs_vals(expected, gains))
+
+        # Specify price but not date    
+        gains = longterm_lot3.calc_gains(price=p)
+        expected = (np.nan, np.nan, np.nan, np.nan)
+        self.assertTrue(test_dict_vs_vals(expected, gains))
+        
+        # =============================================================================
+        # Testing short-term lots
+        # =============================================================================
+        # Test a realized short-term lot
+        shortterm_lot1 = lots_lib.Lot(10, 'ABC', 'A', datetime.date(2022, 1, 15),
+                                datetime.date(2021, 9, 15), 2000, 2000,
+                                datetime.date(2022, 4, 5), 1800, '', 0,
+                                'form1', 'lot1', [], True, False)
+
+        gains = shortterm_lot1.calc_gains()
+        expected = (-200, np.nan, np.nan, np.nan)
+        self.assertTrue(test_dict_vs_vals(expected, gains))
+
+        # Specify price and date    
+        gains = shortterm_lot1.calc_gains(t, p)
+        self.assertTrue(test_dict_vs_vals(expected, gains))
+
+        #Test an unrealized short-term lot - specified proceeds, but no sell date
+        shortterm_lot2 = lots_lib.Lot(10, 'ABC', 'A', datetime.date(2022, 1, 15),
+                                datetime.date(2021, 9, 15), 2000, 2000,
+                                None, 0, '', 0,
+                                'form1', 'lot1', [], True, False)
+
+        gains = shortterm_lot2.calc_gains()
+        expected = (np.nan, np.nan, np.nan, np.nan)
+        self.assertTrue(test_dict_vs_vals(expected, gains))
+
+        #Test an unrealized short-term lot - no proceeds or sell date
+        shortterm_lot3 = lots_lib.Lot(10, 'ABC', 'A', datetime.date(2022, 1, 15),
+                                datetime.date(2021, 9, 15), 2000, 2000,
+                                None, 0, '', 0,
+                                'form1', 'lot1', [], True, False)
+
+        # Specify price and date    
+        gains = shortterm_lot3.calc_gains(t, p)
+        expected = (np.nan, np.nan, -1000, np.nan)
+        self.assertTrue(test_dict_vs_vals(expected, gains))
+
+        # Specify price but not date    
+        gains = shortterm_lot3.calc_gains(price=p)
+        expected = (np.nan, np.nan, np.nan, np.nan)
+        self.assertTrue(test_dict_vs_vals(expected, gains))
+
+        #Test an unrealized short-term lot - exactly 1 year from the adj buy date
+        shortterm_lot4 = lots_lib.Lot(10, 'ABC', 'A', datetime.date(2022, 1, 15),
+                                datetime.date(2021, 5, 22), 2000, 2000,
+                                None, 0, '', 0,
+                                'form1', 'lot1', [], True, False)
+
+        gains = shortterm_lot4.calc_gains(price=p)
+        expected = (np.nan, np.nan, np.nan, np.nan)
+        self.assertTrue(test_dict_vs_vals(expected, gains))
+        
+        # Test a washed lot
+        washed_lot = lots_lib.Lot(10, 'ABC', 'A', datetime.date(2022, 1, 2),
+                                datetime.date(2021, 5, 22), 2000, 2200,
+                                None, 0, 'W', 0,
+                                'form1', 'lot1', [], True, False)
+
+        gains = washed_lot.calc_gains(price=p, date=t)
+        expected = (np.nan, np.nan, np.nan, np.nan)
+        self.assertTrue(test_dict_vs_vals(expected, gains))
+
+
+#%%  Test functionalities for multiple lots
+class TestLotsGains(unittest.TestCase):
+   
+    def test_calc_gain(self):
+        """ Test calculations of gains for the lots portfolio """
+        # Create a lot portfoio for a test
+        lots_rows = []
+        
+        # Long-term Lots        
+        lots_rows.append(lots_lib.Lot(
+            10, 'ABC', 'A', datetime.date(2014, 9, 15),
+            datetime.date(2014, 9, 15), 2000, 2000,
+            datetime.date(2016, 4, 5), 1800, '', 0,
+            'form1', 'lot1', [], True, False))
+        
+        
+        lots_rows.append(lots_lib.Lot(
+            10, 'ABC', 'A', datetime.date(2014, 9, 15),
+            datetime.date(2014, 9, 15), 2000, 2000,
+            None, 0, '', 0,
+            'form1', 'lot1', [], True, False))
+        
+        # # Short-term Lots
+        lots_rows.append(lots_lib.Lot(
+            10, 'ABC', 'A', datetime.date(2022, 1, 15),
+            datetime.date(2021, 9, 15), 2000, 2000,
+            datetime.date(2022, 4, 5), 1800, '', 0,
+            'form1', 'lot1', [], True, False))
+            
+        lots_rows.append(lots_lib.Lot(
+            10, 'ABC', 'A', datetime.date(2022, 1, 15),
+            datetime.date(2021, 9, 15), 2000, 2000,
+            None, 1800, '', 0,
+            'form1', 'lot1', [], True, False))
+            
+        # lots_rows.append(lots_lib.Lot(
+        #     10, 'ABC', 'A', datetime.date(2022, 1, 15),
+        #     datetime.date(2021, 9, 15), 2000, 2000,
+        #     None, None, '', 0,
+        #     'form1', 'lot1', [], True, False))
+        
+        # lots_rows.append(lots_lib.Lot(
+        #     10, 'ABC', 'A', datetime.date(2022, 1, 15),
+        #     datetime.date(2021, 5, 22), 2000, 2000,
+        #     None, None, '', 0,
+        #     'form1', 'lot1', [], True, False))
+        
+        lots = lots_lib.Lots(lots_rows)        
+
+         # set today's date and price
+        t = datetime.date(2022,5,22)
+        p = 100
+         
+        gains = lots.calc_gains(date = t, price=p)
+        
+        exp_per_lot = [ [np.nan,  -200,  np.nan, np.nan ],
+                        [np.nan, np.nan, np.nan,  -1000 ],
+                        [-200,   np.nan, np.nan, np.nan ], 
+                        [np.nan, np.nan,  -1000, np.nan ]                        
+                        ];
+
+        expected = np.nansum(exp_per_lot,axis=0)
+        expected = np.where(np.isnan(exp_per_lot).all(axis=0),np.nan, expected)
+        self.assertTrue(test_dict_vs_vals(expected, gains))           
+
+#%% Entry point
 if __name__ == '__main__':
     unittest.main()
