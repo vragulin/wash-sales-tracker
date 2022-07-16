@@ -1,5 +1,7 @@
 # wash-sale-tracker
 
+This is based on the https://github.com/bbreslauer/wash-sale-tracker package (which is written in Python 2), but adapted to Python 3.
+
 Software that calculates wash sale adjustments for US taxes.
 
 Note that the author is not a CPA or tax expert. This program most certainly contains bugs.
